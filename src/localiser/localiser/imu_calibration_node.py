@@ -20,9 +20,10 @@ TRUE_G = {
 
 DEFAULT_CONFIG_PATH = '/home/denver/BNO_Localizer/src/localiser/config/calibration.json'
 
-POCKETS    = 'pockets'
-COUNTDOWN  = 'countdown'
-R_COLLECT  = 'r_collect'
+POCKETS   = 'pockets'
+COUNTDOWN = 'countdown'
+R_COLLECT = 'r_collect'
+DONE      = 'done'
 
 
 def quat_to_rot(q):
@@ -53,6 +54,12 @@ class ImuCalibrationNode(Node):
     def __init__(self):
         super().__init__('imu_calibration_node')
 
+        # What to update — all default to False (nothing updated unless requested)
+        self.declare_parameter('update_b',       False)
+        self.declare_parameter('update_S',       False)
+        self.declare_parameter('update_R_accel', False)
+        self.declare_parameter('update_R_gyro',  False)
+
         self.declare_parameter('orient_thresh',  0.95)
         self.declare_parameter('stability_var',  0.05)
         self.declare_parameter('stability_win',  50)
@@ -60,6 +67,11 @@ class ImuCalibrationNode(Node):
         self.declare_parameter('r_samples',      300)
         self.declare_parameter('countdown_secs', 5)
         self.declare_parameter('output_path',    DEFAULT_CONFIG_PATH)
+
+        self.update_b       = self.get_parameter('update_b').value
+        self.update_S       = self.get_parameter('update_S').value
+        self.update_R_accel = self.get_parameter('update_R_accel').value
+        self.update_R_gyro  = self.get_parameter('update_R_gyro').value
 
         self.orient_thresh  = self.get_parameter('orient_thresh').value
         self.stability_var  = self.get_parameter('stability_var').value
@@ -69,28 +81,57 @@ class ImuCalibrationNode(Node):
         self.countdown_secs = self.get_parameter('countdown_secs').value
         self.output_path    = self.get_parameter('output_path').value
 
+        self.need_pockets   = self.update_b or self.update_S
+        self.need_r_collect = self.update_R_accel or self.update_R_gyro
+
+        if not self.need_pockets and not self.need_r_collect:
+            self.get_logger().warn(
+                'Nothing to update. Pass at least one of:\n'
+                '  --ros-args -p update_b:=true\n'
+                '             -p update_S:=true\n'
+                '             -p update_R_accel:=true\n'
+                '             -p update_R_gyro:=true'
+            )
+            rclpy.shutdown()
+            return
+
+        updating = [k for k, v in [
+            ('b', self.update_b), ('S', self.update_S),
+            ('R_accel', self.update_R_accel), ('R_gyro', self.update_R_gyro),
+        ] if v]
+        self.get_logger().info(f'Will update: {", ".join(updating)}')
+
         self.create_subscription(Vector3,    '/imu1/data/accel',   self._accel_cb, 10)
         self.create_subscription(Quaternion, '/imu1/data/rot_vec', self._rot_cb,   10)
+        self.create_subscription(Vector3,    '/imu1/data/gyro',    self._gyro_cb,  10)
 
         self.latest_q    = None
+        self.latest_gyro = None
         self.win         = deque(maxlen=self.stability_win)
         self.pockets     = {p: [] for p in POCKET_NAMES}
         self.done        = set()
-        self.r_buf       = []
-        self.state       = POCKETS
-        self.countdown_n = 0
+        self.r_accel_buf = []
+        self.r_gyro_buf  = []
+        self.r_tick      = 0
         self._timer      = None
 
-        self.get_logger().info(
-            f'Calibration node ready  '
-            f'(orient_thresh={self.orient_thresh}, stability_var={self.stability_var})\n'
-            'Place the sensor flat on each of the 6 faces and hold still.'
-        )
+        if self.need_pockets:
+            self.state = POCKETS
+            self.get_logger().info(
+                'Place the sensor flat on each of the 6 faces and hold still.'
+            )
+        else:
+            self.state = COUNTDOWN
+            self._start_countdown()
+
+    # ── sensor callbacks ──────────────────────────────────────────────────────
+
+    def _gyro_cb(self, msg):
+        self.latest_gyro = np.array([msg.x, msg.y, msg.z])
 
     def _rot_cb(self, msg):
         self.latest_q = (msg.x, msg.y, msg.z, msg.w)
 
-    # ── accel callback — routes to active state ───────────────────────────────
     def _accel_cb(self, msg):
         a = np.array([msg.x, msg.y, msg.z])
         self.win.append(a)
@@ -101,6 +142,7 @@ class ImuCalibrationNode(Node):
             self._collect_r(a)
 
     # ── pocket collection ─────────────────────────────────────────────────────
+
     def _collect_pocket(self, a):
         if self.latest_q is None or len(self.win) < self.stability_win:
             return
@@ -124,15 +166,17 @@ class ImuCalibrationNode(Node):
             self.done.add(pocket)
             self.get_logger().info(f'{pocket} COMPLETE  ({len(self.done)}/6 done)')
             if len(self.done) == 6:
-                self._start_countdown()
+                if self.need_r_collect:
+                    self._start_countdown()
+                else:
+                    self._solve_and_save()
 
     # ── countdown ─────────────────────────────────────────────────────────────
+
     def _start_countdown(self):
         self.state       = COUNTDOWN
         self.countdown_n = self.countdown_secs
-        self.get_logger().info(
-            '\nAll 6 pockets done!  Place the sensor flat and release it.'
-        )
+        self.get_logger().info('\nPlace the sensor flat and release it.')
         self._timer = self.create_timer(1.0, self._countdown_tick)
 
     def _countdown_tick(self):
@@ -145,39 +189,63 @@ class ImuCalibrationNode(Node):
             self.state = R_COLLECT
 
     # ── R collection ──────────────────────────────────────────────────────────
+
     def _collect_r(self, a):
-        self.r_buf.append(a)
-        if len(self.r_buf) >= self.r_samples:
-            self.state = 'done'
+        if self.update_R_accel:
+            self.r_accel_buf.append(a)
+        if self.update_R_gyro and self.latest_gyro is not None:
+            self.r_gyro_buf.append(self.latest_gyro.copy())
+
+        self.r_tick += 1
+        if self.r_tick >= self.r_samples:
+            self.state = DONE
             self._solve_and_save()
 
-    # ── solve ─────────────────────────────────────────────────────────────────
+    # ── solve and save ────────────────────────────────────────────────────────
+
     def _solve_and_save(self):
-        means = {p: np.mean(self.pockets[p], axis=0) for p in POCKET_NAMES}
+        # Merge into existing calibration.json rather than overwriting
+        out = {}
+        if os.path.exists(self.output_path):
+            with open(self.output_path) as f:
+                out = json.load(f)
 
-        # b and S via augmented least squares: m_i = S @ t_i + b
-        T     = np.column_stack([TRUE_G[p] for p in POCKET_NAMES])
-        M     = np.column_stack([means[p]  for p in POCKET_NAMES])
-        T_aug = np.vstack([T, np.ones((1, 6))])
-        Sb    = M @ np.linalg.pinv(T_aug)
-        S     = Sb[:, :3]
-        b     = Sb[:,  3]
+        if self.need_pockets:
+            means = {p: np.mean(self.pockets[p], axis=0) for p in POCKET_NAMES}
+            T     = np.column_stack([TRUE_G[p] for p in POCKET_NAMES])
+            M     = np.column_stack([means[p]  for p in POCKET_NAMES])
+            T_aug = np.vstack([T, np.ones((1, 6))])
+            Sb    = M @ np.linalg.pinv(T_aug)
+            S     = Sb[:, :3]
+            b     = Sb[:,  3]
 
-        # R from fresh undisturbed samples collected after countdown
-        S_inv    = np.linalg.inv(S)
-        r_cal    = np.array([S_inv @ (a - b) for a in self.r_buf])  # calibrated
-        R_noise  = np.cov((r_cal - r_cal.mean(axis=0)).T)            # 3×3
+            if self.update_b:
+                out['b'] = b.tolist()
+                self.get_logger().info(f'b = {np.round(b, 4)}')
+            if self.update_S:
+                out['S'] = S.tolist()
+                self.get_logger().info(f'S =\n{np.round(S, 6)}')
 
-        out = {'b': b.tolist(), 'S': S.tolist(), 'R_accel': R_noise.tolist()}
+        if self.update_R_accel and len(self.r_accel_buf) >= 2:
+            S_val = np.array(out.get('S', np.eye(3).tolist()))
+            b_val = np.array(out.get('b', [0.0, 0.0, 0.0]))
+            S_inv = np.linalg.inv(S_val)
+            r_cal = np.array([S_inv @ (a - b_val) for a in self.r_accel_buf])
+            R_accel = np.cov(r_cal.T)
+            out['R_accel'] = R_accel.tolist()
+            self.get_logger().info(f'R_accel =\n{np.round(R_accel, 8)}')
+
+        if self.update_R_gyro and len(self.r_gyro_buf) >= 2:
+            r_gyro = np.array(self.r_gyro_buf)
+            R_gyro = np.cov(r_gyro.T)
+            out['R_gyro'] = R_gyro.tolist()
+            self.get_logger().info(f'R_gyro =\n{np.round(R_gyro, 8)}')
 
         os.makedirs(os.path.dirname(os.path.abspath(self.output_path)), exist_ok=True)
         with open(self.output_path, 'w') as f:
             json.dump(out, f, indent=2)
 
         self.get_logger().info(f'Saved to {self.output_path}')
-        self.get_logger().info(f'b       = {np.round(b, 4)}')
-        self.get_logger().info(f'S       =\n{np.round(S, 6)}')
-        self.get_logger().info(f'R_accel =\n{np.round(R_noise, 8)}')
         rclpy.shutdown()
 
 
