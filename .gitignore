@@ -1,0 +1,35 @@
+# Pico build artifacts — keep .uf2, ignore everything else
+pico_build/*.elf
+pico_build/*.bin
+pico_build/*.hex
+pico_build/*.dis
+pico_build/*.map
+pico_build/*.elf.map
+pico_build/CMakeFiles/
+pico_build/CMakeCache.txt
+pico_build/cmake_install.cmake
+pico_build/Makefile
+pico_build/_deps/
+pico_build/generated/
+pico_build/pioasm/
+pico_build/elf2uf2/
+
+# ROS2 (Robot Operating System 2) colcon build output
+install/
+log/
+build/
+
+# ESKF
+ESKF/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# VS Code (Visual Studio Code)
+.vscode/
+
+# System files
+.DS_Store
+Thumbs.db
