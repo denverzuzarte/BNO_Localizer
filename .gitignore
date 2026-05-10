@@ -25,6 +25,7 @@ ESKF/
 # Claude
 CLAUDE.md
 .claude/
+claude_info/
 
 # Python cache
 __pycache__/
