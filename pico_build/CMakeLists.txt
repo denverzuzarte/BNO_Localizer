@@ -29,9 +29,6 @@ add_executable(imu imu.c)
 target_link_libraries(imu pico_stdlib hardware_i2c)
 pico_add_extra_outputs(imu)
 
-add_executable(imu_single_read imu_single_read.c)
-target_link_libraries(imu_single_read pico_stdlib hardware_i2c)
-pico_add_extra_outputs(imu_single_read)
 
 pico_enable_stdio_usb(i2c_scanner 1)
 pico_enable_stdio_uart(i2c_scanner 0)
@@ -48,5 +45,3 @@ pico_enable_stdio_uart(pico_imu 0)
 pico_enable_stdio_usb(imu 1)
 pico_enable_stdio_uart(imu 0)
 
-pico_enable_stdio_usb(imu_single_read 1)
-pico_enable_stdio_uart(imu_single_read 0)

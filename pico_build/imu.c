@@ -75,7 +75,7 @@ int main()
 			booting++;
 	}
 
-	// SHTP feature requests: gyro_uncal@200Hz, lin_acc@100Hz, rot_vec@50Hz
+	// SHTP feature requests: gyro_uncal@200Hz, accel@100Hz, rot_vec@50Hz
 
 	uint8_t req_gyro_pkt[21] = {0x15, 0x00, 0x02, 0x02,
 				0xFD, 0x07, 0x00, 0x00, 0x00,
@@ -83,8 +83,8 @@ int main()
 				0x00, 0x00, 0x00, 0x00,
 				0x00, 0x00, 0x00, 0x00};
 
-	uint8_t req_lin_acc_pkt[21] = {0x15, 0x00, 0x02, 0x03,
-				0xFD, 0x04, 0x00, 0x00, 0x00,
+	uint8_t req_accel_pkt[21] = {0x15, 0x00, 0x02, 0x03,
+				0xFD, 0x01, 0x00, 0x00, 0x00,
 				0x10, 0x27, 0x00, 0x00,         // 10000 us = 100 Hz
 				0x00, 0x00, 0x00, 0x00,
 				0x00, 0x00, 0x00, 0x00};
@@ -95,18 +95,11 @@ int main()
 				0x00, 0x00, 0x00, 0x00,
 				0x00, 0x00, 0x00, 0x00};
 
-//	uint8_t req_accel_pkt[21] = {0x15, 0x00, 0x02, 0x05,
-//				0xFD, 0x01, 0x00, 0x00, 0x00,
-//				0x40, 0x9C, 0x00, 0x00,         // 40000 us = 25 Hz
-//				0x00, 0x00, 0x00, 0x00,
-//				0x00, 0x00, 0x00, 0x00};
-
 	i2c_write_blocking(i2c1, address_BNO, req_gyro_pkt, 21, false);
 	sleep_ms(100);
-	i2c_write_blocking(i2c1, address_BNO, req_lin_acc_pkt, 21, false);
+	i2c_write_blocking(i2c1, address_BNO, req_accel_pkt, 21, false);
 	sleep_ms(100);
 	i2c_write_blocking(i2c1, address_BNO, req_rot_vec_pkt, 21, false);
-//	i2c_write_blocking(i2c1, address_BNO, req_accel_pkt, 21, false);
 
 	// reading loop
 	int16_t x_raw, y_raw, z_raw, w_raw;
@@ -130,7 +123,7 @@ int main()
 			packnpost_float(&zf, &tmp);
 			putchar_raw(0xF2); stdio_flush();
 		}
-		if(payload[9] == 0x04)  // linear acceleration, Q8 -> /256 m/s^2, msg 0x02
+		if(payload[9] == 0x01)  // accelerometer, Q8 -> /256 m/s^2, msg 0x02
 		{
 			putchar_raw(0xF1); putchar_raw(0x02); putchar_raw(0x0c);
 			x_raw = payload[14] << 8 | payload[13];
@@ -157,17 +150,5 @@ int main()
 			packnpost_float(&wf, &tmp);
 			putchar_raw(0xF2); stdio_flush();
 		}
-//		if(payload[9] == 0x01)  // accelerometer, Q8 -> /256 m/s^2, msg 0x04
-//		{
-//			putchar_raw(0xF1); putchar_raw(0x04); putchar_raw(0x0c);
-//			x_raw = payload[14] << 8 | payload[13];
-//			y_raw = payload[16] << 8 | payload[15];
-//			z_raw = payload[18] << 8 | payload[17];
-//			xf = x_raw / 256.0f; yf = y_raw / 256.0f; zf = z_raw / 256.0f;
-//			packnpost_float(&xf, &tmp);
-//			packnpost_float(&yf, &tmp);
-//			packnpost_float(&zf, &tmp);
-//			putchar_raw(0xF2); stdio_flush();
-//		}
 	}
 }
