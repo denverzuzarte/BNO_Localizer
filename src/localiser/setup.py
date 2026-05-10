@@ -24,7 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'hello = localiser.hello:main'
+            'usb_test_node = localiser.usb_test_node:main',
         ],
     },
 )

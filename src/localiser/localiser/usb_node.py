@@ -18,7 +18,7 @@ ser = serial.Serial('/dev/ttyACM0', 115200)
 class UsbNode():
     def __init__():
         super().__init__('usb_node')
-        self.publisher_ = self.create_publisher(String, 'topic', 10)
+        self.lin_acc_publisher = self.create_publisher(String, 'topic', 10)
 
 
 #def find_packet_start():

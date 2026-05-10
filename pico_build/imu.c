@@ -75,88 +75,99 @@ int main()
 			booting++;
 	}
 
-	// sending SHTP request for linear_acceleration and quaternion data
-	
-	uint8_t req_accel_pkt[21] = {0x15, 0x00, 0x02, 0x02,
-				0xFD, 0x04, 0x00, 0x00, 0x00,
-				0x88, 0x13, 0x00, 0x00,         // 5000 micro seconds delay for reports
-				0x00, 0x00, 0x00, 0x00,		// 0 batch delay
+	// SHTP feature requests: gyro_uncal@200Hz, lin_acc@100Hz, rot_vec@50Hz
+
+	uint8_t req_gyro_pkt[21] = {0x15, 0x00, 0x02, 0x02,
+				0xFD, 0x07, 0x00, 0x00, 0x00,
+				0x88, 0x13, 0x00, 0x00,         // 5000 us = 200 Hz
+				0x00, 0x00, 0x00, 0x00,
 				0x00, 0x00, 0x00, 0x00};
 
-	uint8_t req_quaternion_pkt[] = {0x10, 0x00, 0x02, 0x03,
-					0xFD, 0x05,0x00, 0x00, 0x00,
-	                                0x88, 0x13, 0x00, 0x00,         // 5000 micro seconds delay for reports
-        	                        0x00, 0x00, 0x00, 0x00,         // 0 batch delay
-                	                0x00, 0x00, 0x00, 0x00};
-	
-	i2c_write_blocking(i2c1, address_BNO, req_accel_pkt, 21, false);
-	sleep_ms(300);
-	i2c_write_blocking(i2c1, address_BNO, req_quaternion_pkt, 21, false);
+	uint8_t req_lin_acc_pkt[21] = {0x15, 0x00, 0x02, 0x03,
+				0xFD, 0x04, 0x00, 0x00, 0x00,
+				0x10, 0x27, 0x00, 0x00,         // 10000 us = 100 Hz
+				0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00};
+
+	uint8_t req_rot_vec_pkt[21] = {0x15, 0x00, 0x02, 0x04,
+				0xFD, 0x05, 0x00, 0x00, 0x00,
+				0x20, 0x4E, 0x00, 0x00,         // 20000 us = 50 Hz
+				0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00};
+
+//	uint8_t req_accel_pkt[21] = {0x15, 0x00, 0x02, 0x05,
+//				0xFD, 0x01, 0x00, 0x00, 0x00,
+//				0x40, 0x9C, 0x00, 0x00,         // 40000 us = 25 Hz
+//				0x00, 0x00, 0x00, 0x00,
+//				0x00, 0x00, 0x00, 0x00};
+
+	i2c_write_blocking(i2c1, address_BNO, req_gyro_pkt, 21, false);
+	sleep_ms(100);
+	i2c_write_blocking(i2c1, address_BNO, req_lin_acc_pkt, 21, false);
+	sleep_ms(100);
+	i2c_write_blocking(i2c1, address_BNO, req_rot_vec_pkt, 21, false);
+//	i2c_write_blocking(i2c1, address_BNO, req_accel_pkt, 21, false);
 
 	// reading loop
-	int16_t acc_x;
-	int16_t acc_y;
-	int16_t acc_z;
-	float accel_x;
-	float accel_y;
-	float accel_z;
-        int16_t quat_x;
-        int16_t quat_y;
-        int16_t quat_z;
-	int16_t quat_w;
-        float quatel_x;
-        float quatel_y;
-        float quatel_z;
-	float quatel_w;
-	uint16_t accuracy;
-	float accu;
+	int16_t x_raw, y_raw, z_raw, w_raw;
+	float xf, yf, zf, wf;
 	uint32_t tmp;
-	uint8_t msg_id = 0x01;
-        for(int i = 0; i >= 0; i++)
-        {
-                payload_len = shtp_read_header(&(header[0]), &(header[1]), &(header[2]), &(header[3]));
-                result = shtp_read_packet(payload, payload_len);
-		if(payload[9] == 0x04)
+	for(int i = 0; i >= 0; i++)
+	{
+		payload_len = shtp_read_header(&(header[0]), &(header[1]), &(header[2]), &(header[3]));
+		if(payload_len == 0) continue;
+		result = shtp_read_packet(payload, payload_len);
+
+		if(payload[9] == 0x07)  // gyroscope uncalibrated, Q9 -> /512 rad/s, msg 0x01
 		{
-			putchar_raw(0xF1);putchar_raw(0x02);putchar_raw(0x0c);
-
-			acc_x = payload[14] << 8 | payload[13];
-			acc_y = payload[16] << 8 | payload[15];
-			acc_z = payload[18] << 8 | payload[17];
-			accel_x = (acc_x / 256.0f);
-			accel_y = (acc_y / 256.0f);
-			accel_z = (acc_z / 256.0f);
-			
-			packnpost_float(&accel_x, &tmp);	
-			packnpost_float(&accel_y, &tmp);
-			packnpost_float(&accel_z, &tmp);
-			
-			putchar_raw(0xF2);
-			stdio_flush();
+			putchar_raw(0xF1); putchar_raw(0x01); putchar_raw(0x0c);
+			x_raw = payload[14] << 8 | payload[13];
+			y_raw = payload[16] << 8 | payload[15];
+			z_raw = payload[18] << 8 | payload[17];
+			xf = x_raw / 512.0f; yf = y_raw / 512.0f; zf = z_raw / 512.0f;
+			packnpost_float(&xf, &tmp);
+			packnpost_float(&yf, &tmp);
+			packnpost_float(&zf, &tmp);
+			putchar_raw(0xF2); stdio_flush();
 		}
-		if(payload[9] == 0x05)
+		if(payload[9] == 0x04)  // linear acceleration, Q8 -> /256 m/s^2, msg 0x02
 		{
-			putchar_raw(0xF1);putchar_raw(0x03);putchar_raw(0x10);
-
-                        quat_x = payload[14] << 8 | payload[13];
-                        quat_y = payload[16] << 8 | payload[15];
-                        quat_z = payload[18] << 8 | payload[17];
-			quat_w = payload[20] << 8 | payload[19];
-			accuracy = payload[22] << 8 | payload[21];
-                        quatel_x = (quat_x / 4096.0f)/4.0f;
-                        quatel_y = (quat_y / 4096.0f)/4.0f;
-                        quatel_z = (quat_z / 4096.0f)/4.0f;
-			quatel_w = (quat_w / 4096.0f)/4.0f;
-			accu = accuracy/ 4096.0f;
-                 
-                        packnpost_float(&quatel_x, &tmp); 
-                        packnpost_float(&quatel_y, &tmp);
-                        packnpost_float(&quatel_z, &tmp);
-                	packnpost_float(&quatel_w, &tmp);
-		        packnpost_float(&accu, &tmp);
-
-                        putchar_raw(0xF2);
-                        stdio_flush();
+			putchar_raw(0xF1); putchar_raw(0x02); putchar_raw(0x0c);
+			x_raw = payload[14] << 8 | payload[13];
+			y_raw = payload[16] << 8 | payload[15];
+			z_raw = payload[18] << 8 | payload[17];
+			xf = x_raw / 256.0f; yf = y_raw / 256.0f; zf = z_raw / 256.0f;
+			packnpost_float(&xf, &tmp);
+			packnpost_float(&yf, &tmp);
+			packnpost_float(&zf, &tmp);
+			putchar_raw(0xF2); stdio_flush();
 		}
-        }
+		if(payload[9] == 0x05)  // rotation vector, Q14 -> /16384, msg 0x03
+		{
+			putchar_raw(0xF1); putchar_raw(0x03); putchar_raw(0x10);
+			x_raw = payload[14] << 8 | payload[13];
+			y_raw = payload[16] << 8 | payload[15];
+			z_raw = payload[18] << 8 | payload[17];
+			w_raw = payload[20] << 8 | payload[19];
+			xf = x_raw / 16384.0f; yf = y_raw / 16384.0f;
+			zf = z_raw / 16384.0f; wf = w_raw / 16384.0f;
+			packnpost_float(&xf, &tmp);
+			packnpost_float(&yf, &tmp);
+			packnpost_float(&zf, &tmp);
+			packnpost_float(&wf, &tmp);
+			putchar_raw(0xF2); stdio_flush();
+		}
+//		if(payload[9] == 0x01)  // accelerometer, Q8 -> /256 m/s^2, msg 0x04
+//		{
+//			putchar_raw(0xF1); putchar_raw(0x04); putchar_raw(0x0c);
+//			x_raw = payload[14] << 8 | payload[13];
+//			y_raw = payload[16] << 8 | payload[15];
+//			z_raw = payload[18] << 8 | payload[17];
+//			xf = x_raw / 256.0f; yf = y_raw / 256.0f; zf = z_raw / 256.0f;
+//			packnpost_float(&xf, &tmp);
+//			packnpost_float(&yf, &tmp);
+//			packnpost_float(&zf, &tmp);
+//			putchar_raw(0xF2); stdio_flush();
+//		}
+	}
 }
