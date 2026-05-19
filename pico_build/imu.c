@@ -7,6 +7,8 @@
 #define SDA 2
 #define SCL 3
 #define LED 25
+#define INT 8
+
 uint32_t const baudrate = 400000;
 uint8_t address_BNO = 0x4A;
 
@@ -46,6 +48,9 @@ int main()
 	sleep_ms(1000);
 	gpio_init(LED);
 	gpio_set_dir(LED, GPIO_OUT);
+	gpio_init(INT);
+	gpio_set_dir(INT, GPIO_IN);
+	gpio_pull_up(INT);
 	stdio_init_all();
 	sleep_ms(3000);
 	gpio_put(LED, 1);
@@ -75,29 +80,35 @@ int main()
 			booting++;
 	}
 
-	// SHTP feature requests: gyro_uncal@200Hz, accel@100Hz, rot_vec@50Hz
-
 	uint8_t req_gyro_pkt[21] = {0x15, 0x00, 0x02, 0x02,
 				0xFD, 0x07, 0x00, 0x00, 0x00,
-				0x88, 0x13, 0x00, 0x00,         // 5000 us = 200 Hz
-				0x00, 0x00, 0x00, 0x00,
-				0x00, 0x00, 0x00, 0x00};
-
-	uint8_t req_accel_pkt[21] = {0x15, 0x00, 0x02, 0x03,
-				0xFD, 0x01, 0x00, 0x00, 0x00,
 				0x10, 0x27, 0x00, 0x00,         // 10000 us = 100 Hz
 				0x00, 0x00, 0x00, 0x00,
 				0x00, 0x00, 0x00, 0x00};
 
+	uint8_t req_lin_acc_pkt[21] = {0x15, 0x00, 0x02, 0x03,
+				0xFD, 0x04, 0x00, 0x00, 0x00,
+				0x10, 0x27, 0x00, 0x00,         // 10000 us = 100 Hz
+				0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00};
+
+//	uint8_t req_accel_pkt[21] = {0x15, 0x00, 0x02, 0x03,
+//				0xFD, 0x01, 0x00, 0x00, 0x00,
+//				0x10, 0x27, 0x00, 0x00,         // 10000 us = 100 Hz
+//				0x00, 0x00, 0x00, 0x00,
+//				0x00, 0x00, 0x00, 0x00};
+
 	uint8_t req_rot_vec_pkt[21] = {0x15, 0x00, 0x02, 0x04,
 				0xFD, 0x05, 0x00, 0x00, 0x00,
-				0x20, 0x4E, 0x00, 0x00,         // 20000 us = 50 Hz
+				0x10, 0x27, 0x00, 0x00,         // 10000 us = 100 Hz
 				0x00, 0x00, 0x00, 0x00,
 				0x00, 0x00, 0x00, 0x00};
 
 	i2c_write_blocking(i2c1, address_BNO, req_gyro_pkt, 21, false);
 	sleep_ms(100);
-	i2c_write_blocking(i2c1, address_BNO, req_accel_pkt, 21, false);
+//	i2c_write_blocking(i2c1, address_BNO, req_accel_pkt, 21, false);
+//	sleep_ms(100);
+	i2c_write_blocking(i2c1, address_BNO, req_lin_acc_pkt, 21, false);
 	sleep_ms(100);
 	i2c_write_blocking(i2c1, address_BNO, req_rot_vec_pkt, 21, false);
 
@@ -107,48 +118,68 @@ int main()
 	uint32_t tmp;
 	for(int i = 0; i >= 0; i++)
 	{
+		// INT is active-low: wait for BNO085 to assert data ready
+		while(gpio_get(INT)) tight_loop_contents();
+
 		payload_len = shtp_read_header(&(header[0]), &(header[1]), &(header[2]), &(header[3]));
 		if(payload_len == 0) continue;
 		result = shtp_read_packet(payload, payload_len);
 
-		if(payload[9] == 0x07)  // gyroscope uncalibrated, Q9 -> /512 rad/s, msg 0x01
+		switch(payload[9])
 		{
-			putchar_raw(0xF1); putchar_raw(0x01); putchar_raw(0x0c);
-			x_raw = payload[14] << 8 | payload[13];
-			y_raw = payload[16] << 8 | payload[15];
-			z_raw = payload[18] << 8 | payload[17];
-			xf = x_raw / 512.0f; yf = y_raw / 512.0f; zf = z_raw / 512.0f;
-			packnpost_float(&xf, &tmp);
-			packnpost_float(&yf, &tmp);
-			packnpost_float(&zf, &tmp);
-			putchar_raw(0xF2); stdio_flush();
-		}
-		if(payload[9] == 0x01)  // accelerometer, Q8 -> /256 m/s^2, msg 0x02
-		{
-			putchar_raw(0xF1); putchar_raw(0x02); putchar_raw(0x0c);
-			x_raw = payload[14] << 8 | payload[13];
-			y_raw = payload[16] << 8 | payload[15];
-			z_raw = payload[18] << 8 | payload[17];
-			xf = x_raw / 256.0f; yf = y_raw / 256.0f; zf = z_raw / 256.0f;
-			packnpost_float(&xf, &tmp);
-			packnpost_float(&yf, &tmp);
-			packnpost_float(&zf, &tmp);
-			putchar_raw(0xF2); stdio_flush();
-		}
-		if(payload[9] == 0x05)  // rotation vector, Q14 -> /16384, msg 0x03
-		{
-			putchar_raw(0xF1); putchar_raw(0x03); putchar_raw(0x10);
-			x_raw = payload[14] << 8 | payload[13];
-			y_raw = payload[16] << 8 | payload[15];
-			z_raw = payload[18] << 8 | payload[17];
-			w_raw = payload[20] << 8 | payload[19];
-			xf = x_raw / 16384.0f; yf = y_raw / 16384.0f;
-			zf = z_raw / 16384.0f; wf = w_raw / 16384.0f;
-			packnpost_float(&xf, &tmp);
-			packnpost_float(&yf, &tmp);
-			packnpost_float(&zf, &tmp);
-			packnpost_float(&wf, &tmp);
-			putchar_raw(0xF2); stdio_flush();
+			case 0x07:  // gyroscope uncalibrated, Q9 -> /512 rad/s, msg 0x01
+				putchar_raw(0xF1); putchar_raw(0x01); putchar_raw(0x0c);
+				x_raw = payload[14] << 8 | payload[13];
+				y_raw = payload[16] << 8 | payload[15];
+				z_raw = payload[18] << 8 | payload[17];
+				xf = x_raw / 512.0f; yf = y_raw / 512.0f; zf = z_raw / 512.0f;
+				packnpost_float(&xf, &tmp);
+				packnpost_float(&yf, &tmp);
+				packnpost_float(&zf, &tmp);
+				putchar_raw(0xF2); stdio_flush();
+				break;
+
+			case 0x01:  // accelerometer, Q8 -> /256 m/s^2, msg 0x02
+				putchar_raw(0xF1); putchar_raw(0x02); putchar_raw(0x0c);
+				x_raw = payload[14] << 8 | payload[13];
+				y_raw = payload[16] << 8 | payload[15];
+				z_raw = payload[18] << 8 | payload[17];
+				xf = x_raw / 256.0f; yf = y_raw / 256.0f; zf = z_raw / 256.0f;
+				packnpost_float(&xf, &tmp);
+				packnpost_float(&yf, &tmp);
+				packnpost_float(&zf, &tmp);
+				putchar_raw(0xF2); stdio_flush();
+				break;
+
+			case 0x04:  // linear acceleration, Q8 -> /256 m/s^2, msg 0x04
+				putchar_raw(0xF1); putchar_raw(0x04); putchar_raw(0x0c);
+				x_raw = payload[14] << 8 | payload[13];
+				y_raw = payload[16] << 8 | payload[15];
+				z_raw = payload[18] << 8 | payload[17];
+				xf = x_raw / 256.0f; yf = y_raw / 256.0f; zf = z_raw / 256.0f;
+				packnpost_float(&xf, &tmp);
+				packnpost_float(&yf, &tmp);
+				packnpost_float(&zf, &tmp);
+				putchar_raw(0xF2); stdio_flush();
+				break;
+
+			case 0x05:  // rotation vector, Q14 -> /16384, msg 0x03
+				putchar_raw(0xF1); putchar_raw(0x03); putchar_raw(0x10);
+				x_raw = payload[14] << 8 | payload[13];
+				y_raw = payload[16] << 8 | payload[15];
+				z_raw = payload[18] << 8 | payload[17];
+				w_raw = payload[20] << 8 | payload[19];
+				xf = x_raw / 16384.0f; yf = y_raw / 16384.0f;
+				zf = z_raw / 16384.0f; wf = w_raw / 16384.0f;
+				packnpost_float(&xf, &tmp);
+				packnpost_float(&yf, &tmp);
+				packnpost_float(&zf, &tmp);
+				packnpost_float(&wf, &tmp);
+				putchar_raw(0xF2); stdio_flush();
+				break;
+
+			default:
+				break;
 		}
 	}
 }

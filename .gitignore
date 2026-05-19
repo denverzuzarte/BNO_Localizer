@@ -13,6 +13,7 @@ pico_build/_deps/
 pico_build/generated/
 pico_build/pioasm/
 pico_build/elf2uf2/
+pico_build/build/
 
 # ROS2 (Robot Operating System 2) colcon build output
 install/
@@ -21,6 +22,7 @@ build/
 
 # ESKF
 ESKF/
+Shivansh_implementation/
 
 # Claude
 CLAUDE.md
@@ -40,3 +42,4 @@ __pycache__/
 Thumbs.db
 *.swp
 tags
+*.map

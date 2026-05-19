@@ -26,7 +26,12 @@ setup(
     entry_points={
         'console_scripts': [
             'usb_test_node = localiser.usb_test_node:main',
-            'imu_calibration_node = localiser.imu_calibration_node:main',
+            'usb_test_data_stream = localiser.usb_test_data_stream:main',
+            'usb_test_lib_node = localiser.usb_test_lib_node:main',
+            'eskf_localiser = localiser.eskf_localiser:main',
+            'eskf_calibrator = localiser.eskf_calibrator:main',
+            # 'imu_node = localiser.imu_node:main',
+            # 'imu_calibration_node = localiser.imu_calibration_node:main',
         ],
     },
 )

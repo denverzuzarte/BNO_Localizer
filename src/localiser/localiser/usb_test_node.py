@@ -11,6 +11,7 @@ END_BYTE   = 0xF2
 GYRO_MSG_ID    = 0x01  # gyroscope uncalibrated, rad/s
 ACCEL_MSG_ID   = 0x02  # accelerometer, m/s^2
 ROT_VEC_MSG_ID = 0x03  # rotation vector quaternion
+LIN_ACC_MSG_ID = 0x04  # linear acceleration, m/s^2
 
 
 def bytes_to_float(b):
@@ -24,8 +25,9 @@ class UsbTestNode(Node):
         self.ser = serial.Serial('/dev/ttyACM0', 115200, timeout=1.0)
 
         self.gyro_pub    = self.create_publisher(Vector3,    '/imu1/data/gyro',    10)
-        self.accel_pub   = self.create_publisher(Vector3,    '/imu1/data/accel',   10)
+        # self.accel_pub   = self.create_publisher(Vector3,    '/imu1/data/accel',   10)
         self.rot_vec_pub = self.create_publisher(Quaternion, '/imu1/data/rot_vec', 10)
+        self.lin_acc_pub = self.create_publisher(Vector3,    '/imu1/data/lin_acc', 10)
 
         self._thread = threading.Thread(target=self._read_loop, daemon=True)
         self._thread.start()
@@ -58,12 +60,12 @@ class UsbTestNode(Node):
                     msg.z = bytes_to_float(floats[2])
                     self.gyro_pub.publish(msg)
 
-                elif msg_id == ACCEL_MSG_ID and len(floats) >= 3:
-                    msg = Vector3()
-                    msg.x = bytes_to_float(floats[0])
-                    msg.y = bytes_to_float(floats[1])
-                    msg.z = bytes_to_float(floats[2])
-                    self.accel_pub.publish(msg)
+                # elif msg_id == ACCEL_MSG_ID and len(floats) >= 3:
+                #     msg = Vector3()
+                #     msg.x = bytes_to_float(floats[0])
+                #     msg.y = bytes_to_float(floats[1])
+                #     msg.z = bytes_to_float(floats[2])
+                #     self.accel_pub.publish(msg)
 
                 elif msg_id == ROT_VEC_MSG_ID and len(floats) >= 4:
                     msg = Quaternion()
@@ -72,6 +74,13 @@ class UsbTestNode(Node):
                     msg.z = bytes_to_float(floats[2])
                     msg.w = bytes_to_float(floats[3])
                     self.rot_vec_pub.publish(msg)
+
+                elif msg_id == LIN_ACC_MSG_ID and len(floats) >= 3:
+                    msg = Vector3()
+                    msg.x = bytes_to_float(floats[0])
+                    msg.y = bytes_to_float(floats[1])
+                    msg.z = bytes_to_float(floats[2])
+                    self.lin_acc_pub.publish(msg)
 
             except Exception as e:
                 self.get_logger().warn(f'Serial read error: {e}')

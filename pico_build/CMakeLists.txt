@@ -45,3 +45,17 @@ pico_enable_stdio_uart(pico_imu 0)
 pico_enable_stdio_usb(imu 1)
 pico_enable_stdio_uart(imu 0)
 
+add_executable(imu_flipper_test imu_flipper_test.c)
+target_link_libraries(imu_flipper_test pico_stdlib hardware_i2c)
+pico_add_extra_outputs(imu_flipper_test)
+pico_enable_stdio_usb(imu_flipper_test 1)
+pico_enable_stdio_uart(imu_flipper_test 0)
+
+file(GLOB SH2_SOURCES sh2/*.c)
+add_executable(imu_lib imu_lib.c ${SH2_SOURCES})
+target_include_directories(imu_lib PRIVATE sh2)
+target_link_libraries(imu_lib pico_stdlib hardware_i2c)
+pico_add_extra_outputs(imu_lib)
+pico_enable_stdio_usb(imu_lib 1)
+pico_enable_stdio_uart(imu_lib 0)
+
